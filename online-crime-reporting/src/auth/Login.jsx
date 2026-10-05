@@ -1,19 +1,47 @@
-import { Link } from "react-router-dom";
-import { ShieldCheck, Mail, LockKeyhole } from "lucide-react";
 import { useState } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { ShieldCheck, Mail, LockKeyhole } from "lucide-react";
+import toast from "react-hot-toast";
 import Button from "../components/ui/Button";
+import api from "../api";
+import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
-  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    const form = e.target;
+    try {
+      const res = await api.post('/auth/login', {
+        email: form.email.value,
+        password: form.password.value,
+      });
+      const { token, user } = res.data.data;
+      login(token, user);
+      toast.success(res.data.message);
+      
+      const destination = location.state?.from?.pathname || `/${user.role.toLowerCase()}/dashboard`;
+      navigate(destination);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <AuthShell title="Welcome back" subtitle="Sign in to access your reporting workspace.">
-      <form onSubmit={(e) => { e.preventDefault(); setSubmitted(true); }} className="grid gap-5">
-        {submitted && <div className="rounded-xl bg-amber-50 p-4 text-sm font-semibold text-amber-800">Authentication API is not connected yet. This frontend form is ready for the real login endpoint.</div>}
-        <label className="grid gap-2 text-sm font-semibold"><span className="flex items-center gap-2"><Mail size={15} /> Email</span><input required type="email" autoComplete="email" className="h-12 rounded-xl border border-slate-200 px-4 outline-none focus:border-teal-500" /></label>
-        <label className="grid gap-2 text-sm font-semibold"><span className="flex items-center gap-2"><LockKeyhole size={15} /> Password</span><input required type="password" autoComplete="current-password" className="h-12 rounded-xl border border-slate-200 px-4 outline-none focus:border-teal-500" /></label>
+      <form onSubmit={handleSubmit} className="grid gap-5">
+        <label className="grid gap-2 text-sm font-semibold"><span className="flex items-center gap-2"><Mail size={15} /> Email</span><input name="email" required type="email" autoComplete="email" className="h-12 rounded-xl border border-slate-200 px-4 outline-none focus:border-teal-500" /></label>
+        <label className="grid gap-2 text-sm font-semibold"><span className="flex items-center gap-2"><LockKeyhole size={15} /> Password</span><input name="password" required type="password" autoComplete="current-password" className="h-12 rounded-xl border border-slate-200 px-4 outline-none focus:border-teal-500" /></label>
         <div className="flex items-center justify-between text-sm"><label className="flex items-center gap-2 text-slate-500"><input type="checkbox" /> Remember me</label><Link to="/forgot-password" className="font-semibold text-teal-700">Forgot password?</Link></div>
-        <Button type="submit" size="lg">Sign in</Button>
+        <Button type="submit" size="lg" disabled={loading}>{loading ? 'Signing in...' : 'Sign in'}</Button>
         <p className="text-center text-sm text-slate-500">Don't have an account? <Link to="/register" className="font-bold text-teal-700">Create one</Link></p>
       </form>
     </AuthShell>
