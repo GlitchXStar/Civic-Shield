@@ -1,10 +1,17 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, Navigate, useLocation } from "react-router-dom";
 import { useState } from "react";
 import CitizenSidebar from "../components/CitizenSidebar";
 import PortalHeader from "../components/PortalHeader";
+import { useAuth } from "../context/AuthContext";
 
 export default function CitizenLayout() {
   const [menu, setMenu] = useState(false);
+  const { user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) return <div className="grid h-screen place-items-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-teal-600 border-t-transparent" /></div>;
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (user.role !== 'CITIZEN') return <Navigate to={`/${user.role.toLowerCase()}/dashboard`} replace />;
 
   return (
     <div className="min-h-screen bg-[#f7fbfa] lg:flex">
