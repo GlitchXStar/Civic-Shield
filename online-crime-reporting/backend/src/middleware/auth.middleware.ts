@@ -5,6 +5,7 @@ import { User } from '../models/User.js';
 import { errorResponse } from '../types/response.js';
 import { AppError } from './error.middleware.js';
 import { UserRoleType } from '../constants/index.js';
+import { logger } from '../utils/logger.js';
 
 // Extend Express Request to include user data
 declare global {
@@ -67,13 +68,20 @@ export async function authenticate(
     next();
   } catch (error) {
     if (error instanceof AppError) {
+      if (error.statusCode === 401) {
+        logger.auth('Unauthorized request', { reqId: req.id, route: req.originalUrl, Reason: error.message });
+      } else if (error.statusCode === 403) {
+        logger.auth('Forbidden request', { reqId: req.id, route: req.originalUrl, Reason: error.message });
+      }
       next(error);
       return;
     }
     if (error instanceof jwt.JsonWebTokenError) {
+      logger.auth('Unauthorized request', { reqId: req.id, route: req.originalUrl, Reason: 'Invalid or expired token' });
       next(new AppError('Invalid or expired token.', 401, 'INVALID_TOKEN'));
       return;
     }
+    logger.auth('Authentication error', { reqId: req.id, route: req.originalUrl, error: (error as Error).message });
     next(error);
   }
 }
@@ -89,6 +97,13 @@ export function authorize(...roles: UserRoleType[]) {
     }
 
     if (!roles.includes(req.user.role)) {
+      logger.rbac('ACCESS DENIED', {
+        reqId: req.id,
+        user: req.user.id,
+        role: req.user.role,
+        Required: roles.join(' OR '),
+        route: req.originalUrl
+      }, true);
       next(
         new AppError(
           'You do not have permission to access this resource.',
@@ -99,6 +114,12 @@ export function authorize(...roles: UserRoleType[]) {
       return;
     }
 
+    logger.rbac('ACCESS GRANTED', {
+      reqId: req.id,
+      user: req.user.id,
+      role: req.user.role,
+      route: req.originalUrl
+    });
     next();
   };
 }

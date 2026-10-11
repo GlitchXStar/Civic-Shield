@@ -24,6 +24,10 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.10.1",
     "multer": "^2.0.1",
+    "on-headers": "^1.1.0",
+    "picocolors": "^1.1.1",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
     "uuid": "^11.1.0",
     "zod": "^3.25.0"
   },
@@ -34,6 +38,8 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.15.0",
+    "@types/on-headers": "^1.0.4",
+    "@types/pino": "^7.0.4",
     "@types/uuid": "^10.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"

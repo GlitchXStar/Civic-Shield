@@ -1,7 +1,8 @@
 import app from './app.js';
 import { env } from './config/env.js';
 import connectDatabase from './config/database.js';
-
+import { logger } from './utils/logger.js';
+import pc from 'picocolors';
 // ────────────────────────────────────────────────
 // Start server
 // ────────────────────────────────────────────────
@@ -10,31 +11,32 @@ import connectDatabase from './config/database.js';
 connectDatabase();
 
 const server = app.listen(env.PORT, () => {
-  console.log('');
-  console.log('  ╔═══════════════════════════════════════════╗');
-  console.log('  ║          CIVIC SHIELD BACKEND             ║');
-  console.log('  ║    Online Crime Reporting System API      ║');
-  console.log('  ╚═══════════════════════════════════════════╝');
-  console.log('');
-  console.log(`  ➜  Server:      http://localhost:${env.PORT}`);
-  console.log(`  ➜  Health:      http://localhost:${env.PORT}/api/health`);
-  console.log(`  ➜  Environment: ${env.NODE_ENV}`);
-  console.log(`  ➜  CORS Origin: ${env.CORS_ORIGIN}`);
-  console.log('');
+  const banner = `\n${pc.gray('============================================================')}
+             ${pc.blue(pc.bold('CIVIC SHIELD BACKEND'))}
+${pc.gray('============================================================')}
+Environment : ${pc.cyan(env.NODE_ENV)}
+Server      : ${pc.cyan('Express + TypeScript')}
+Port        : ${pc.cyan(env.PORT)}
+API Base    : ${pc.cyan('/api')}
+Logging     : ${pc.green('ENABLED')}
+${pc.gray('============================================================')}\n`;
+  console.log(banner);
+  console.log(`${pc.blue('[SERVER]')} API server running on port ${env.PORT}`);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
+  console.log(`${pc.blue('[SERVER]')} Shutdown signal received (SIGTERM)`);
   server.close(() => {
-    console.log('Server closed.');
+    console.log(`${pc.blue('[SERVER]')} Shutdown complete`);
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('\nSIGINT received. Shutting down...');
+  console.log(`\n${pc.blue('[SERVER]')} Shutdown signal received (SIGINT)`);
   server.close(() => {
+    console.log(`${pc.blue('[SERVER]')} Shutdown complete`);
     process.exit(0);
   });
 });

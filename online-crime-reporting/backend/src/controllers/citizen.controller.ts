@@ -8,6 +8,7 @@ import { AppError } from '../middleware/error.middleware.js';
 import { successResponse, paginatedResponse } from '../types/response.js';
 import { reportCrimeSchema, updateProfileSchema } from '../validators/citizen.validator.js';
 import { CaseStatus, AuditAction } from '../constants/index.js';
+import { logger } from '../utils/logger.js';
 
 export async function submitReport(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -61,6 +62,13 @@ export async function submitReport(req: Request, res: Response, next: NextFuncti
       metadata: { trackingId },
     });
 
+    logger.citizen('Crime report submitted', {
+      reqId: req.id,
+      user: userId,
+      Case: trackingId,
+      Category: data.category
+    });
+
     res.status(201).json(successResponse({ report }, 'Report submitted successfully'));
   } catch (error) {
     next(error);
@@ -71,6 +79,8 @@ export async function getMyReports(req: Request, res: Response, next: NextFuncti
   try {
     const userId = req.user!.id;
     const { status, search, page = 1, limit = 10 } = req.query;
+
+    logger.citizen('Viewing own reports', { reqId: req.id, user: userId });
 
     const query: any = { submittedBy: userId };
     
@@ -115,6 +125,8 @@ export async function getReportDetails(req: Request, res: Response, next: NextFu
     if (!report) {
       throw new AppError('Report not found or access denied', 404, 'NOT_FOUND');
     }
+
+    logger.citizen('Viewing case', { reqId: req.id, user: userId, Case: report.trackingId });
 
     res.json(successResponse({ report }));
   } catch (error) {
@@ -167,6 +179,8 @@ export async function readNotification(req: Request, res: Response, next: NextFu
       throw new AppError('Notification not found', 404, 'NOT_FOUND');
     }
 
+    logger.notification('Marked as read', { reqId: req.id, user: userId, Notification: id });
+
     res.json(successResponse({ success: true }));
   } catch (error) {
     next(error);
@@ -215,6 +229,8 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
       entityId: userId,
       details: 'Updated profile information'
     });
+
+    logger.citizen('Profile updated', { reqId: req.id, user: userId });
 
     res.json(successResponse({ user: updatedUser.toJSON() }, 'Profile updated successfully'));
   } catch (error) {

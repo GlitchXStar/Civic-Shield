@@ -8,6 +8,7 @@ import { AppError } from '../middleware/error.middleware.js';
 import { successResponse, paginatedResponse } from '../types/response.js';
 import { assignCaseSchema, updateAdminProfileSchema } from '../validators/admin.validator.js';
 import { CaseStatus, UserRole, AuditAction } from '../constants/index.js';
+import { logger } from '../utils/logger.js';
 
 export async function getDashboardStats(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -150,7 +151,7 @@ export async function getUnassignedCases(req: Request, res: Response, next: Next
 
 export async function assignCase(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const adminId = req.user!.id;
     const data = assignCaseSchema.parse(req.body);
     
@@ -165,6 +166,7 @@ export async function assignCase(req: Request, res: Response, next: NextFunction
     }
     
     const isReassignment = !!report.assignedTo;
+    const prevOfficerId = report.assignedTo ? report.assignedTo.toString() : 'None';
     
     report.assignedTo = officer._id;
     if (report.status === CaseStatus.SUBMITTED || report.status === CaseStatus.UNDER_REVIEW) {
@@ -186,6 +188,13 @@ export async function assignCase(req: Request, res: Response, next: NextFunction
       entityId: id,
       metadata: { officerId: officer._id, officerName: officer.name }
     });
+    
+    if (isReassignment) {
+      logger.caseReassignment(id, prevOfficerId, officer._id.toString(), req.user?.name || adminId);
+    } else {
+      logger.caseAssignment(id, officer._id.toString(), req.user?.name || adminId);
+    }
+    logger.admin(`Case ${id} ${isReassignment ? 'reassigned' : 'assigned'} to Officer ${officer.name} by Admin ${adminId}`, { reqId: req.id as string, user: adminId, case: id });
     
     res.json(successResponse({ report, assignment }, 'Case assigned successfully'));
   } catch (error) {
@@ -276,6 +285,8 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
       entityType: 'User',
       entityId: userId,
     });
+    
+    logger.admin(`Admin ${userId} updated their profile`, { reqId: req.id as string, user: userId });
     
     res.json(successResponse({ user: updatedUser?.toJSON() }, 'Profile updated'));
   } catch (error) {

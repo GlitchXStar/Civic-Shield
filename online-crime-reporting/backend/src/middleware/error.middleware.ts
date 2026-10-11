@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { errorResponse } from '../types/response.js';
 import { env } from '../config/env.js';
-
+import { logger } from '../utils/logger.js';
 // Custom error class
 export class AppError extends Error {
   public statusCode: number;
@@ -19,6 +19,7 @@ export class AppError extends Error {
 
 // 404 handler
 export function notFoundHandler(req: Request, res: Response): void {
+  logger[404](req.originalUrl, req.id);
   res.status(404).json(
     errorResponse(`Route ${req.method} ${req.originalUrl} not found`, 'NOT_FOUND')
   );
@@ -95,7 +96,15 @@ export function errorHandler(
   }
 
   // Generic error
-  console.error('Unhandled error:', err);
+  logger.error(err.message, {
+    reqId: _req.id,
+    method: _req.method,
+    route: _req.originalUrl,
+    user: _req.user?.id,
+    status: 500,
+    stack: env.isProduction ? undefined : err.stack
+  });
+
   res.status(500).json(
     errorResponse(
       env.isProduction ? 'An internal server error occurred' : err.message,

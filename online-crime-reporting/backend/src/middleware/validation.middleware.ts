@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodSchema, ZodError } from 'zod';
 import { errorResponse } from '../types/response.js';
-
+import { logger } from '../utils/logger.js';
 /**
  * Validation middleware — validates request body against a Zod schema
  */
@@ -18,6 +18,13 @@ export function validate(schema: ZodSchema) {
           if (!errors[path]) errors[path] = [];
           errors[path].push(issue.message);
         }
+        
+        logger.validation('Zod validation failed', {
+          reqId: req.id,
+          route: `${req.method} ${req.originalUrl}`,
+          Fields: Object.keys(errors).join(', ')
+        });
+
         res.status(400).json(
           errorResponse('Validation failed', 'VALIDATION_ERROR', errors)
         );
@@ -44,6 +51,13 @@ export function validateQuery(schema: ZodSchema) {
           if (!errors[path]) errors[path] = [];
           errors[path].push(issue.message);
         }
+        
+        logger.validation('Query validation failed', {
+          reqId: req.id,
+          route: `${req.method} ${req.originalUrl}`,
+          Fields: Object.keys(errors).join(', ')
+        });
+
         res.status(400).json(
           errorResponse('Invalid query parameters', 'VALIDATION_ERROR', errors)
         );

@@ -9,6 +9,7 @@ import { AppError } from '../middleware/error.middleware.js';
 import { successResponse, paginatedResponse } from '../types/response.js';
 import { updateStatusSchema, addNoteSchema, updatePoliceProfileSchema } from '../validators/police.validator.js';
 import { CaseStatus, AuditAction } from '../constants/index.js';
+import { logger } from '../utils/logger.js';
 
 export async function getDashboardStats(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -114,7 +115,7 @@ export async function getInvestigation(req: Request, res: Response, next: NextFu
 
 export async function addInvestigationNote(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const userId = req.user!.id;
     const data = addNoteSchema.parse(req.body);
 
@@ -137,6 +138,8 @@ export async function addInvestigationNote(req: Request, res: Response, next: Ne
       entityId: note._id,
       metadata: { caseId: id }
     });
+    
+    logger.police(`Officer ${userId} added an investigation note to Case ${id}`, { reqId: req.id as string, user: userId, case: id });
 
     res.status(201).json(successResponse({ note }));
   } catch (error) {
@@ -146,7 +149,7 @@ export async function addInvestigationNote(req: Request, res: Response, next: Ne
 
 export async function updateCaseStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const userId = req.user!.id;
     const data = updateStatusSchema.parse(req.body);
 
@@ -155,6 +158,7 @@ export async function updateCaseStatus(req: Request, res: Response, next: NextFu
       throw new AppError('Case not found', 404, 'NOT_FOUND');
     }
 
+    const prevStatus = report.status;
     report.status = data.status;
     await report.save();
 
@@ -172,6 +176,9 @@ export async function updateCaseStatus(req: Request, res: Response, next: NextFu
       entityId: id,
       metadata: { newStatus: data.status, remarks: data.remarks }
     });
+    
+    logger.caseStatusChange(id, String(prevStatus), data.status, req.user?.name || userId, 'Police');
+    logger.police(`Officer ${userId} updated Case ${id} status to ${data.status}`, { reqId: req.id as string, user: userId, case: id });
 
     res.json(successResponse({ history }, 'Status updated successfully'));
   } catch (error) {
@@ -249,6 +256,8 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
       entityType: 'PoliceProfile',
       entityId: profile._id,
     });
+    
+    logger.police(`Officer ${userId} updated their profile`, { reqId: req.id as string, user: userId });
 
     res.json(successResponse({ user: updatedUser?.toJSON(), profile }, 'Profile updated'));
   } catch (error) {

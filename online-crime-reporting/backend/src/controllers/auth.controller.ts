@@ -11,7 +11,7 @@ import {
   resetPasswordSchema,
 } from '../validators/auth.validator.js';
 import { UserRole, UserStatus, AuditAction } from '../constants/index.js';
-
+import { logger } from '../utils/logger.js';
 export async function register(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const data = registerSchema.parse(req.body);
@@ -47,6 +47,12 @@ export async function register(req: Request, res: Response, next: NextFunction):
       ipAddress: req.ip,
     });
 
+    logger.auth('User registration', {
+      reqId: req.id,
+      user: user._id.toString(),
+      role: user.role
+    });
+
     res.status(201).json(
       successResponse({
         token,
@@ -54,6 +60,9 @@ export async function register(req: Request, res: Response, next: NextFunction):
       }, 'Registration successful')
     );
   } catch (error) {
+    if (error instanceof AppError && error.errorCode === 'EMAIL_IN_USE') {
+      logger.auth('Registration failed', { reqId: req.id, Reason: error.message });
+    }
     next(error);
   }
 }
@@ -61,6 +70,7 @@ export async function register(req: Request, res: Response, next: NextFunction):
 export async function login(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const data = loginSchema.parse(req.body);
+    logger.auth('Login attempt', { reqId: req.id, Email: data.email });
 
     const user = await User.findOne({ email: data.email });
     if (!user) {
@@ -91,6 +101,12 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
       ipAddress: req.ip,
     });
 
+    logger.auth('Login successful', {
+      reqId: req.id,
+      user: user._id.toString(),
+      role: user.role
+    });
+
     res.json(
       successResponse({
         token,
@@ -98,6 +114,9 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
       }, 'Login successful')
     );
   } catch (error) {
+    if (error instanceof AppError && (error.errorCode === 'INVALID_CREDENTIALS' || error.errorCode === 'ACCOUNT_SUSPENDED')) {
+      logger.auth('Login failed', { reqId: req.id, Reason: error.message });
+    }
     next(error);
   }
 }
@@ -112,6 +131,12 @@ export async function getMe(req: Request, res: Response, next: NextFunction): Pr
     if (!user) {
       throw new AppError('User not found.', 404, 'NOT_FOUND');
     }
+
+    logger.auth('Session restored', {
+      reqId: req.id,
+      user: user._id.toString(),
+      role: user.role
+    });
 
     res.json(successResponse({ user: user.toJSON() }));
   } catch (error) {
@@ -128,7 +153,7 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
     if (user) {
       // In a real application, create a reset token and send an email
       // For this academic project, we simulate succcess.
-      console.log(`[DEV] Password reset requested for ${data.email}. Token would be generated and emailed.`);
+      logger.auth(`[DEV] Password reset requested for ${data.email}. Token would be generated and emailed.`, { reqId: req.id as string, Email: data.email });
     }
 
     res.json(successResponse(null, 'If that email is registered, a password reset link has been sent.'));

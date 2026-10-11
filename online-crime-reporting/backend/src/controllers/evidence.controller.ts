@@ -5,12 +5,13 @@ import { AuditLog } from '../models/AuditLog.js';
 import { AppError } from '../middleware/error.middleware.js';
 import { successResponse } from '../types/response.js';
 import { AuditAction, UserRole } from '../constants/index.js';
+import { logger } from '../utils/logger.js';
 import fs from 'fs';
 import path from 'path';
 
 export async function uploadEvidence(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const userId = req.user!.id;
     const role = req.user!.role;
 
@@ -53,6 +54,8 @@ export async function uploadEvidence(req: Request, res: Response, next: NextFunc
       entityId: id, // Linking to the case
       details: `Uploaded ${files.length} files.`
     });
+    
+    logger.evidence(`Uploaded ${files.length} evidence files to Case ${id}`, { reqId: req.id as string, user: userId, case: id });
 
     res.status(201).json(successResponse({ evidence: uploadedEvidence }, 'Evidence uploaded successfully'));
   } catch (error) {
@@ -122,6 +125,8 @@ export async function deleteEvidence(req: Request, res: Response, next: NextFunc
       entityType: 'Evidence',
       entityId: id,
     });
+    
+    logger.evidence(`Deleted evidence ${id}`, { reqId: req.id as string, user: userId, case: evidence.crimeReport?.toString() });
 
     res.json(successResponse({ success: true }, 'Evidence deleted successfully'));
   } catch (error) {

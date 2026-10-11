@@ -11,11 +11,14 @@ import evidenceRoutes from './routes/evidence.routes.js';
 import policeRoutes from './routes/police.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 
+import { requestLogger } from './middleware/requestLogger.js';
+
 // ────────────────────────────────────────────────
 // Create Express application
 // ────────────────────────────────────────────────
 
 const app = express();
+app.use(requestLogger);
 
 // ─── Security ─────────────────────────────────
 app.use(helmet());
