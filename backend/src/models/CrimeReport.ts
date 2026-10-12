@@ -19,6 +19,17 @@ export interface IGeoLocation {
   pincode?: string;
 }
 
+export interface IResolutionReport {
+  reportNumber: string;
+  generatedAt: Date;
+  generatedBy: mongoose.Types.ObjectId;
+  officerName: string;
+  badgeNumber?: string;
+  summary: string;
+  findings: string;
+  actionTaken: string;
+}
+
 export interface ICrimeReport extends Document {
   _id: mongoose.Types.ObjectId;
   trackingId: string;
@@ -34,6 +45,7 @@ export interface ICrimeReport extends Document {
   contactPreference: ContactMethodType;
   isAnonymous: boolean;
   evidenceFiles: mongoose.Types.ObjectId[];
+  resolutionReport?: IResolutionReport | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -156,6 +168,20 @@ const CrimeReportSchema: Schema<ICrimeReport> = new Schema(
         ref: 'Evidence',
       },
     ],
+    resolutionReport: {
+      type: {
+        reportNumber: { type: String, required: true },
+        generatedAt: { type: Date, default: Date.now },
+        generatedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+        officerName: { type: String, required: true },
+        badgeNumber: { type: String },
+        summary: { type: String, required: true },
+        findings: { type: String, required: true },
+        actionTaken: { type: String, required: true },
+      },
+      default: null,
+      _id: false,
+    },
   },
   {
     timestamps: true,

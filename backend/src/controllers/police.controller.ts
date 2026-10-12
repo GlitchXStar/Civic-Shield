@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { CrimeReport } from '../models/CrimeReport.js';
 import { PoliceProfile } from '../models/PoliceProfile.js';
 import { InvestigationNote } from '../models/InvestigationNote.js';
@@ -115,7 +116,7 @@ export async function getCaseDetails(req: Request, res: Response, next: NextFunc
       throw new AppError('Access denied. You are not assigned to this case.', 403, 'FORBIDDEN');
     }
 
-    res.json(successResponse({ report }));
+    res.json(successResponse({ report, case: report }));
   } catch (error) {
     next(error);
   }
@@ -337,6 +338,88 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
     logger.police(`Officer ${userId} updated their profile`, { reqId: req.id as string, user: userId });
 
     res.json(successResponse({ user: updatedUser?.toJSON(), profile }, 'Profile updated'));
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function generateResolutionReport(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const userId = req.user!.id;
+    const { summary, findings, actionTaken } = req.body;
+
+    if (!summary || !findings || !actionTaken) {
+      throw new AppError('Summary, findings, and actionTaken are required to generate resolution report.', 400, 'VALIDATION_ERROR');
+    }
+
+    const report = await CrimeReport.findById(id);
+    if (!report) {
+      throw new AppError('Case not found', 404, 'NOT_FOUND');
+    }
+
+    // Authorization: assigned officer or admin
+    const isAssigned = report.assignedTo && report.assignedTo.toString() === userId;
+    const isAdmin = req.user!.role === UserRole.ADMIN;
+    if (!isAssigned && !isAdmin) {
+      throw new AppError('Access denied. Only the assigned officer can generate resolution report.', 403, 'FORBIDDEN');
+    }
+
+    const officerProfile = await PoliceProfile.findOne({ user: userId });
+    const prevStatus = report.status;
+    report.status = CaseStatus.RESOLVED;
+    report.resolutionReport = {
+      reportNumber: `RES-${report.trackingId}`,
+      generatedAt: new Date(),
+      generatedBy: new mongoose.Types.ObjectId(userId),
+      officerName: req.user!.name,
+      badgeNumber: officerProfile?.badgeNumber || 'POL-OFFICER',
+      summary: summary.trim(),
+      findings: findings.trim(),
+      actionTaken: actionTaken.trim(),
+    };
+
+    await report.save();
+
+    await CaseStatusHistory.create({
+      crimeReport: id,
+      changedBy: userId,
+      previousStatus: prevStatus,
+      newStatus: CaseStatus.RESOLVED,
+      reason: `Case investigation concluded. Final report issued: ${summary.trim()}`,
+      changedAt: new Date(),
+    });
+
+    await AuditLog.create({
+      user: userId,
+      action: AuditAction.STATUS_CHANGED,
+      resource: 'CrimeReport',
+      resourceId: id,
+      ipAddress: req.ip,
+      details: {
+        action: 'RESOLUTION_REPORT_GENERATED',
+        reportNumber: `RES-${report.trackingId}`,
+      },
+    });
+
+    // Notify citizen that case is resolved
+    if (report.submittedBy) {
+      await Notification.create({
+        recipient: report.submittedBy,
+        title: `Case Resolved: Report #${report.trackingId}`,
+        message: `Your case #${report.trackingId} (${report.title}) has been resolved. The official investigation report is now available for download.`,
+        type: NotificationType.CASE_RESOLVED,
+        relatedReport: report._id,
+      });
+    }
+
+    logger.police(`Officer ${userId} generated resolution report for case ${id}`, {
+      reqId: req.id as string,
+      user: userId,
+      case: id,
+    });
+
+    res.json(successResponse({ report, case: report, resolutionReport: report.resolutionReport }, 'Resolution report generated successfully'));
   } catch (error) {
     next(error);
   }

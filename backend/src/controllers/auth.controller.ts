@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { User } from '../models/User.js';
+import { PoliceProfile } from '../models/PoliceProfile.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { AppError } from '../middleware/error.middleware.js';
 import { successResponse } from '../types/response.js';
@@ -10,7 +11,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
 } from '../validators/auth.validator.js';
-import { UserRole, UserStatus, AuditAction } from '../constants/index.js';
+import { UserRole, UserRoleType, UserStatus, AuditAction } from '../constants/index.js';
 import { logger } from '../utils/logger.js';
 export async function register(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -31,14 +32,40 @@ export async function register(req: Request, res: Response, next: NextFunction):
       fullName = 'Citizen User';
     }
 
+    let assignedRole: UserRoleType = UserRole.CITIZEN;
+    if (data.role) {
+      const upperRole = data.role.toUpperCase();
+      if (upperRole === 'POLICE' || upperRole === 'POLICE_OFFICER') {
+        assignedRole = UserRole.POLICE;
+      } else if (upperRole === 'ADMIN' || upperRole === 'ADMINISTRATOR') {
+        assignedRole = UserRole.ADMIN;
+      } else {
+        assignedRole = UserRole.CITIZEN;
+      }
+    }
+
     const user = await User.create({
       name: fullName,
       email: data.email,
       phone: data.phone || '',
       passwordHash: hashedPassword,
-      role: UserRole.CITIZEN,
+      role: assignedRole,
       status: UserStatus.ACTIVE,
     });
+
+    if (assignedRole === UserRole.POLICE) {
+      const existingProfile = await PoliceProfile.findOne({ user: user._id });
+      if (!existingProfile) {
+        await PoliceProfile.create({
+          user: user._id,
+          badgeNumber: `POL-${Date.now().toString().slice(-6)}`,
+          rank: 'Officer',
+          department: 'General Policing',
+          stationName: 'Central Police Station',
+          status: 'AVAILABLE',
+        });
+      }
+    }
 
     const token = generateToken({
       userId: user._id.toString(),
@@ -80,7 +107,7 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
     const data = loginSchema.parse(req.body);
     logger.auth('Login attempt', { reqId: req.id, Email: data.email });
 
-    const user = await User.findOne({ email: data.email });
+    const user = await User.findOne({ email: data.email }).select('+passwordHash');
     if (!user) {
       throw new AppError('Invalid email or password.', 401, 'INVALID_CREDENTIALS');
     }
@@ -92,6 +119,30 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
     const isPasswordValid = await verifyPassword(data.password, user.passwordHash);
     if (!isPasswordValid) {
       throw new AppError('Invalid email or password.', 401, 'INVALID_CREDENTIALS');
+    }
+
+    if (data.role) {
+      const requestedRole = data.role.toUpperCase();
+      const mappedRole =
+        requestedRole === 'POLICE_OFFICER' || requestedRole === 'POLICE'
+          ? UserRole.POLICE
+          : requestedRole === 'ADMINISTRATOR' || requestedRole === 'ADMIN'
+          ? UserRole.ADMIN
+          : UserRole.CITIZEN;
+
+      if (mappedRole !== user.role) {
+        const friendlyRole =
+          user.role === UserRole.CITIZEN
+            ? 'Citizen'
+            : user.role === UserRole.POLICE
+            ? 'Police Officer'
+            : 'Administrator';
+        throw new AppError(
+          `This account is registered as a ${friendlyRole}. Please select the ${friendlyRole} role to log in.`,
+          403,
+          'ROLE_MISMATCH'
+        );
+      }
     }
 
     const token = generateToken({

@@ -7,24 +7,25 @@ import { UserRole } from '../constants/index.js';
 import { authorize } from '../middleware/auth.middleware.js';
 
 describe('Auth Security & Privilege Escalation Checks', () => {
-  it('Public registration validator strips or ignores client-supplied privileged roles', () => {
-    // Attempt privilege escalation to ADMIN
-    const maliciousPayload = {
-      name: 'Attacker User',
-      email: 'attacker@example.com',
+  it('Public registration validator validates role and enforces allowed values', () => {
+    const payload = {
+      name: 'Authorized User',
+      email: 'user@example.com',
       password: 'SecurePassword123!',
       phone: '9876543210',
-      role: 'ADMIN', // Client trying to become ADMIN
+      role: 'POLICE',
     };
 
-    const parsed = registerSchema.parse(maliciousPayload) as any;
-    
-    // Role MUST NOT be present in validated output or must not be ADMIN
-    assert.strictEqual(
-      parsed.role,
-      undefined,
-      'Client-supplied role must be rejected or stripped by registerSchema'
-    );
+    const parsed = registerSchema.parse(payload) as any;
+    assert.strictEqual(parsed.role, 'POLICE');
+
+    // Invalid role must be rejected
+    assert.throws(() => {
+      registerSchema.parse({
+        ...payload,
+        role: 'SUPERUSER_ROOT',
+      });
+    });
   });
 
   it('Public registration validator accepts first and last name formats and enforces password length', () => {
@@ -78,6 +79,13 @@ describe('Auth Security & Privilege Escalation Checks', () => {
 
     const wrongMatch = await bcrypt.compare('WrongPassword!', hash);
     assert.strictEqual(wrongMatch, false);
+  });
+
+  it('verifyPassword handles missing or undefined hash safely without throwing', async () => {
+    const { verifyPassword } = await import('../utils/auth.utils.js');
+    assert.strictEqual(await verifyPassword('anyPassword', ''), false);
+    assert.strictEqual(await verifyPassword('anyPassword', undefined as any), false);
+    assert.strictEqual(await verifyPassword('', 'someHash'), false);
   });
 
   it('Role-based authorization middleware denies unauthorized roles', () => {

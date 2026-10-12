@@ -23,6 +23,9 @@ router.post('/cases/:id/investigation', policeController.addInvestigationNote);
 // Status update
 router.patch('/cases/:id/status', policeController.updateCaseStatus);
 
+// Resolution report generation
+router.post('/cases/:id/resolution-report', policeController.generateResolutionReport);
+
 // Export
 router.get('/reports', policeController.exportReports);
 

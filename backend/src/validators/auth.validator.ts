@@ -7,11 +7,13 @@ export const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
   phone: z.string().min(10, 'Phone number must be at least 10 characters').optional().or(z.literal('')),
   password: z.string().min(8, 'Password must be at least 8 characters'),
+  role: z.enum(['CITIZEN', 'POLICE', 'ADMIN', 'citizen', 'police', 'admin']).optional(),
 });
 
 export const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: z.string().min(1, 'Password is required'),
+  role: z.string().optional(),
 });
 
 export const forgotPasswordSchema = z.object({

@@ -37,11 +37,11 @@ export async function authenticate(
 ): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      throw new AppError('Authentication required. Please provide a valid token.', 401, 'UNAUTHORIZED');
+    let token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    if (!token && typeof req.query.token === 'string' && req.query.token) {
+      token = req.query.token;
     }
 
-    const token = authHeader.split(' ')[1];
     if (!token) {
       throw new AppError('Authentication required. Please provide a valid token.', 401, 'UNAUTHORIZED');
     }
