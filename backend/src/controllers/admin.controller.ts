@@ -2,20 +2,24 @@ import { Request, Response, NextFunction } from 'express';
 import { CrimeReport } from '../models/CrimeReport.js';
 import { PoliceProfile } from '../models/PoliceProfile.js';
 import { CaseAssignment } from '../models/CaseAssignment.js';
+import { CaseStatusHistory } from '../models/CaseStatusHistory.js';
+import { Notification } from '../models/Notification.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { User } from '../models/User.js';
 import { AppError } from '../middleware/error.middleware.js';
 import { successResponse, paginatedResponse } from '../types/response.js';
-import { assignCaseSchema, updateAdminProfileSchema } from '../validators/admin.validator.js';
-import { CaseStatus, UserRole, AuditAction } from '../constants/index.js';
+import { assignCaseSchema, updateAdminProfileSchema, createUserSchema } from '../validators/admin.validator.js';
+import { CaseStatus, UserRole, AuditAction, PoliceStatus, UserStatus, NotificationType } from '../constants/index.js';
+import { hashPassword } from '../utils/auth.utils.js';
 import { logger } from '../utils/logger.js';
 
 export async function getDashboardStats(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const [users, officers, reports] = await Promise.all([
+    const [users, officers, reports, recentReports] = await Promise.all([
       User.countDocuments({ role: UserRole.CITIZEN }),
       User.countDocuments({ role: UserRole.POLICE }),
-      CrimeReport.countDocuments()
+      CrimeReport.countDocuments(),
+      CrimeReport.find().sort({ createdAt: -1 }).limit(10),
     ]);
 
     const activeCases = await CrimeReport.countDocuments({ 
@@ -26,11 +30,23 @@ export async function getDashboardStats(req: Request, res: Response, next: NextF
       status: { $in: [CaseStatus.RESOLVED, CaseStatus.CLOSED] }
     });
 
+    const markers = recentReports
+      .filter((r) => r.location?.coordinates && r.location.coordinates.length === 2)
+      .map((r) => ({
+        id: r.trackingId,
+        position: [r.location.coordinates[1], r.location.coordinates[0]], // [lat, lng]
+        title: `${r.trackingId} · ${r.category}`,
+        description: r.title,
+        status: r.status,
+      }));
+
     res.json(successResponse({
       users,
       officers,
       reports,
-      stats: { activeCases, resolvedCases }
+      stats: { activeCases, resolvedCases },
+      recentReports,
+      markers,
     }));
   } catch (error) {
     next(error);
@@ -68,8 +84,6 @@ export async function getOfficers(req: Request, res: Response, next: NextFunctio
   try {
     const { search, page = 1, limit = 10 } = req.query;
     
-    // Note: To search by user name we might need aggregation if schema is separated, 
-    // but typically we can fetch users with POLICE role.
     const query: any = { role: UserRole.POLICE };
     if (search) {
       query.$or = [
@@ -107,7 +121,9 @@ export async function getAllReports(req: Request, res: Response, next: NextFunct
     const { status, search, page = 1, limit = 10 } = req.query;
     
     const query: any = {};
-    if (status) query.status = status;
+    if (status && status !== 'All statuses') {
+      query.status = String(status).toUpperCase().replace(/\s+/g, '_');
+    }
     if (search) {
       query.$or = [
         { trackingId: { $regex: search, $options: 'i' } },
@@ -117,8 +133,8 @@ export async function getAllReports(req: Request, res: Response, next: NextFunct
     
     const skip = (Number(page) - 1) * Number(limit);
     const reports = await CrimeReport.find(query)
-      .populate('submittedBy', 'name email')
-      .populate('assignedTo', 'name email')
+      .populate('submittedBy', 'name email phone')
+      .populate('assignedTo', 'name email badgeNumber')
       .skip(skip)
       .limit(Number(limit))
       .sort({ createdAt: -1 });
@@ -151,7 +167,7 @@ export async function getUnassignedCases(req: Request, res: Response, next: Next
 
 export async function assignCase(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const id = req.params.id as string;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const adminId = req.user!.id;
     const data = assignCaseSchema.parse(req.body);
     
@@ -169,24 +185,59 @@ export async function assignCase(req: Request, res: Response, next: NextFunction
     const prevOfficerId = report.assignedTo ? report.assignedTo.toString() : 'None';
     
     report.assignedTo = officer._id;
+    const prevStatus = report.status;
     if (report.status === CaseStatus.SUBMITTED || report.status === CaseStatus.UNDER_REVIEW) {
       report.status = CaseStatus.ASSIGNED;
     }
     await report.save();
     
     const assignment = await CaseAssignment.create({
-      caseId: id,
-      officerId: officer._id,
+      crimeReport: id,
+      assignedTo: officer._id,
       assignedBy: adminId,
       assignedAt: new Date(),
+      status: 'ACTIVE',
+      notes: `Assigned to ${officer.name}`,
     });
+
+    await CaseStatusHistory.create({
+      crimeReport: id,
+      changedBy: adminId,
+      previousStatus: prevStatus,
+      newStatus: report.status,
+      reason: `Case assigned to Officer ${officer.name} by administrator`,
+      changedAt: new Date(),
+    });
+
+    await PoliceProfile.updateOne({ user: officer._id }, { $inc: { casesAssignedCount: 1 } });
     
     await AuditLog.create({
-      userId: adminId,
+      user: adminId,
       action: isReassignment ? AuditAction.CASE_REASSIGNED : AuditAction.CASE_ASSIGNED,
-      entityType: 'CrimeReport',
-      entityId: id,
-      metadata: { officerId: officer._id, officerName: officer.name }
+      resource: 'CrimeReport',
+      resourceId: id,
+      ipAddress: req.ip,
+      details: { officerId: officer._id.toString(), officerName: officer.name }
+    });
+
+    // Notify citizen
+    if (report.submittedBy) {
+      await Notification.create({
+        recipient: report.submittedBy,
+        title: `Case Assigned: ${report.trackingId}`,
+        message: `Your report "${report.title}" has been assigned to Officer ${officer.name}.`,
+        type: NotificationType.CASE_ASSIGNED,
+        relatedReport: report._id,
+      });
+    }
+
+    // Notify officer
+    await Notification.create({
+      recipient: officer._id,
+      title: `New Case Assigned: ${report.trackingId}`,
+      message: `You have been assigned to investigate report "${report.title}".`,
+      type: NotificationType.CASE_ASSIGNED,
+      relatedReport: report._id,
     });
     
     if (isReassignment) {
@@ -202,18 +253,74 @@ export async function assignCase(req: Request, res: Response, next: NextFunction
   }
 }
 
+export async function createUser(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const adminId = req.user!.id;
+    const data = createUserSchema.parse(req.body);
+
+    const existing = await User.findOne({ email: data.email });
+    if (existing) {
+      throw new AppError('Email is already registered.', 409, 'EMAIL_IN_USE');
+    }
+
+    const hashedPassword = await hashPassword(data.password);
+    const user = await User.create({
+      name: data.name,
+      email: data.email,
+      phone: data.phone || '',
+      passwordHash: hashedPassword,
+      role: data.role as any,
+      status: UserStatus.ACTIVE,
+    });
+
+    if (data.role === UserRole.POLICE) {
+      await PoliceProfile.create({
+        user: user._id,
+        badgeNumber: data.badgeNumber || 'POL-' + Math.floor(1000 + Math.random() * 9000),
+        rank: data.rank || 'Officer',
+        department: data.department || 'General Operations',
+        stationName: data.stationName || 'Central Station',
+        status: PoliceStatus.AVAILABLE,
+      });
+    }
+
+    await AuditLog.create({
+      user: adminId,
+      action: AuditAction.REGISTER,
+      resource: 'User',
+      resourceId: user._id.toString(),
+      ipAddress: req.ip,
+      details: { createdRole: data.role, email: data.email },
+    });
+
+    res.status(201).json(successResponse({ user: user.toJSON() }, 'User created successfully'));
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getAnalytics(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    // Basic aggregation example for analytics
-    const casesByCategory = await CrimeReport.aggregate([
-      { $group: { _id: "$category", count: { $sum: 1 } } }
+    const [casesByCategory, casesByStatus, totalReports, resolvedReports] = await Promise.all([
+      CrimeReport.aggregate([
+        { $group: { _id: "$category", count: { $sum: 1 } } }
+      ]),
+      CrimeReport.aggregate([
+        { $group: { _id: "$status", count: { $sum: 1 } } }
+      ]),
+      CrimeReport.countDocuments(),
+      CrimeReport.countDocuments({ status: { $in: [CaseStatus.RESOLVED, CaseStatus.CLOSED] } }),
     ]);
+
+    const resolutionRate = totalReports > 0 ? Math.round((resolvedReports / totalReports) * 100) : 0;
     
-    const casesByStatus = await CrimeReport.aggregate([
-      { $group: { _id: "$status", count: { $sum: 1 } } }
-    ]);
-    
-    res.json(successResponse({ casesByCategory, casesByStatus }));
+    res.json(successResponse({
+      casesByCategory,
+      casesByStatus,
+      totalReports,
+      resolvedReports,
+      resolutionRate,
+    }));
   } catch (error) {
     next(error);
   }
@@ -224,12 +331,15 @@ export async function getAuditLogs(req: Request, res: Response, next: NextFuncti
     const { search, page = 1, limit = 20 } = req.query;
     const query: any = {};
     if (search) {
-      query.action = { $regex: search, $options: 'i' };
+      query.$or = [
+        { action: { $regex: search, $options: 'i' } },
+        { resource: { $regex: search, $options: 'i' } },
+      ];
     }
     
     const skip = (Number(page) - 1) * Number(limit);
     const logs = await AuditLog.find(query)
-      .populate('userId', 'name email role')
+      .populate('user', 'name email role')
       .skip(skip)
       .limit(Number(limit))
       .sort({ createdAt: -1 });
@@ -268,11 +378,13 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
     const data = updateAdminProfileSchema.parse(req.body);
     
     const updateData: any = {};
-    if (data.firstName || data.lastName) {
+    if (data.name) {
+      updateData.name = data.name.trim();
+    } else if (data.firstName || data.lastName) {
       const user = await User.findById(userId);
-      const currentNameParts = user!.name.split(' ');
-      const newFirstName = data.firstName || currentNameParts[0];
-      const newLastName = data.lastName || currentNameParts.slice(1).join(' ');
+      const currentNameParts = (user?.name || '').split(' ');
+      const newFirstName = data.firstName || currentNameParts[0] || '';
+      const newLastName = data.lastName || currentNameParts.slice(1).join(' ') || '';
       updateData.name = `${newFirstName} ${newLastName}`.trim();
     }
     if (data.phone) updateData.phone = data.phone;
@@ -280,10 +392,12 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
     const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true });
     
     await AuditLog.create({
-      userId,
+      user: userId,
       action: AuditAction.USER_UPDATED,
-      entityType: 'User',
-      entityId: userId,
+      resource: 'User',
+      resourceId: userId.toString(),
+      ipAddress: req.ip,
+      details: { message: 'Admin updated profile' },
     });
     
     logger.admin(`Admin ${userId} updated their profile`, { reqId: req.id as string, user: userId });

@@ -8,12 +8,19 @@ const router = Router();
 // All evidence routes require authentication
 router.use(authenticate);
 
-// We need to attach the upload route to /reports/:id/evidence conceptually,
-// but since this file is for evidence, let's export a specific reports-evidence router
-// OR we can put upload on the evidence router: POST /api/evidence/cases/:id
+// Evidence upload for a case: POST /api/evidence/cases/:id
 router.post('/cases/:id', upload.array('files', 10), evidenceController.uploadEvidence);
 
+// List all evidence for a case: GET /api/evidence/cases/:id
+router.get('/cases/:id', evidenceController.getCaseEvidence);
+
+// Evidence download: GET /api/evidence/:id/download
+router.get('/:id/download', evidenceController.downloadEvidence);
+
+// Evidence details: GET /api/evidence/:id
 router.get('/:id', evidenceController.getEvidenceDetails);
+
+// Delete evidence: DELETE /api/evidence/:id
 router.delete('/:id', evidenceController.deleteEvidence);
 
 export default router;

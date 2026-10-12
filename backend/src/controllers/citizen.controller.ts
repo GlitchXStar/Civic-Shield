@@ -20,46 +20,46 @@ export async function submitReport(req: Request, res: Response, next: NextFuncti
     const randomNum = Math.floor(1000 + Math.random() * 9000);
     const trackingId = `CR-${dateStr}-${randomNum}`;
 
-    let locationPoint;
-    if (data.location.coordinates) {
-      locationPoint = {
-        type: 'Point',
-        coordinates: [data.location.coordinates.lng, data.location.coordinates.lat],
-      };
+    let coordinates: [number, number] = [72.8777, 19.0760]; // default Mumbai [lng, lat]
+    if (data.location?.coordinates) {
+      coordinates = [data.location.coordinates.lng, data.location.coordinates.lat];
     }
 
     const report = await CrimeReport.create({
       trackingId,
       submittedBy: userId,
       category: data.category,
-      title: `Crime Report - ${data.category}`,
+      title: data.title || `Crime Report - ${data.category}`,
       incidentDate: data.incidentDate,
       location: {
         type: 'Point',
-        formattedAddress: data.location.address,
-        city: data.location.city,
-        state: data.location.state,
-        pincode: data.location.pincode,
-        coordinates: locationPoint,
+        coordinates,
+        formattedAddress: data.location?.address || 'Incident Location',
+        city: data.location?.city || 'Mumbai',
+        state: data.location?.state || 'Maharashtra',
+        pincode: data.location?.pincode || '400001',
       },
       description: data.description,
-      contactPreference: 'EMAIL',
+      contactPreference: data.contactPreference || 'EMAIL',
       status: CaseStatus.SUBMITTED,
     });
 
     await CaseStatusHistory.create({
-      caseId: report._id,
-      status: CaseStatus.SUBMITTED,
+      crimeReport: report._id,
       changedBy: userId,
-      remarks: 'Report submitted by citizen.',
+      previousStatus: CaseStatus.SUBMITTED,
+      newStatus: CaseStatus.SUBMITTED,
+      reason: 'Report submitted by citizen.',
+      changedAt: new Date(),
     });
 
     await AuditLog.create({
-      userId,
+      user: userId,
       action: AuditAction.REPORT_CREATED,
-      entityType: 'CrimeReport',
-      entityId: report._id,
-      metadata: { trackingId },
+      resource: 'CrimeReport',
+      resourceId: report._id.toString(),
+      ipAddress: req.ip,
+      details: { trackingId },
     });
 
     logger.citizen('Crime report submitted', {
@@ -75,6 +75,45 @@ export async function submitReport(req: Request, res: Response, next: NextFuncti
   }
 }
 
+export async function getDashboardStats(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = req.user!.id;
+
+    const [totalReports, activeCases, resolvedCases, recentReports] = await Promise.all([
+      CrimeReport.countDocuments({ submittedBy: userId }),
+      CrimeReport.countDocuments({
+        submittedBy: userId,
+        status: { $in: [CaseStatus.SUBMITTED, CaseStatus.UNDER_REVIEW, CaseStatus.ASSIGNED, CaseStatus.UNDER_INVESTIGATION] }
+      }),
+      CrimeReport.countDocuments({
+        submittedBy: userId,
+        status: { $in: [CaseStatus.RESOLVED, CaseStatus.CLOSED] }
+      }),
+      CrimeReport.find({ submittedBy: userId }).sort({ createdAt: -1 }).limit(5)
+    ]);
+
+    const markers = recentReports
+      .filter((r) => r.location?.coordinates && r.location.coordinates.length === 2)
+      .map((r) => ({
+        id: r.trackingId,
+        position: [r.location.coordinates[1], r.location.coordinates[0]], // [lat, lng] for Leaflet
+        title: `${r.trackingId} · ${r.category}`,
+        description: r.title,
+        status: r.status,
+      }));
+
+    res.json(successResponse({
+      totalReports,
+      activeCases,
+      resolvedCases,
+      recentReports,
+      markers,
+    }));
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getMyReports(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const userId = req.user!.id;
@@ -84,13 +123,15 @@ export async function getMyReports(req: Request, res: Response, next: NextFuncti
 
     const query: any = { submittedBy: userId };
     
-    if (status) {
-      query.status = status;
+    if (status && status !== 'All statuses') {
+      const normalizedStatus = String(status).toUpperCase().replace(/\s+/g, '_');
+      query.status = normalizedStatus;
     }
     
     if (search) {
       query.$or = [
         { trackingId: { $regex: search, $options: 'i' } },
+        { title: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } }
       ];
     }
@@ -145,7 +186,8 @@ export async function getReportTimeline(req: Request, res: Response, next: NextF
       throw new AppError('Report not found or access denied', 404, 'NOT_FOUND');
     }
 
-    const timeline = await CaseStatusHistory.find({ caseId: id }).sort({ createdAt: 1 })
+    const timeline = await CaseStatusHistory.find({ crimeReport: id })
+      .sort({ createdAt: 1 })
       .populate('changedBy', 'name role');
 
     res.json(successResponse({ timeline }));
@@ -157,7 +199,7 @@ export async function getReportTimeline(req: Request, res: Response, next: NextF
 export async function getNotifications(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const userId = req.user!.id;
-    const notifications = await Notification.find({ userId }).sort({ createdAt: -1 }).limit(50);
+    const notifications = await Notification.find({ recipient: userId }).sort({ createdAt: -1 }).limit(50);
     res.json(successResponse({ notifications }));
   } catch (error) {
     next(error);
@@ -170,8 +212,8 @@ export async function readNotification(req: Request, res: Response, next: NextFu
     const userId = req.user!.id;
 
     const notification = await Notification.findOneAndUpdate(
-      { _id: id, userId },
-      { isRead: true },
+      { _id: id, recipient: userId },
+      { isRead: true, readAt: new Date() },
       { new: true }
     );
 
@@ -206,11 +248,13 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
     const data = updateProfileSchema.parse(req.body);
 
     const updateData: any = {};
-    if (data.firstName || data.lastName) {
+    if (data.name) {
+      updateData.name = data.name.trim();
+    } else if (data.firstName || data.lastName) {
       const user = await User.findById(userId);
-      const currentNameParts = user!.name.split(' ');
-      const newFirstName = data.firstName || currentNameParts[0];
-      const newLastName = data.lastName || currentNameParts.slice(1).join(' ');
+      const currentNameParts = (user?.name || '').split(' ');
+      const newFirstName = data.firstName || currentNameParts[0] || '';
+      const newLastName = data.lastName || currentNameParts.slice(1).join(' ') || '';
       updateData.name = `${newFirstName} ${newLastName}`.trim();
     }
     if (data.phone) updateData.phone = data.phone;
@@ -223,11 +267,12 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
     }
 
     await AuditLog.create({
-      userId,
+      user: userId,
       action: AuditAction.USER_UPDATED,
-      entityType: 'User',
-      entityId: userId,
-      details: 'Updated profile information'
+      resource: 'User',
+      resourceId: userId.toString(),
+      ipAddress: req.ip,
+      details: { message: 'Updated profile information' },
     });
 
     logger.citizen('Profile updated', { reqId: req.id, user: userId });

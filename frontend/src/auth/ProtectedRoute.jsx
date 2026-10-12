@@ -1,19 +1,22 @@
-
 import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuth, normalizeRole } from "./AuthContext";
 
 export default function ProtectedRoute({ allowedRoles = [] }) {
   const location = useLocation();
+  const { user, role, isAuthenticated, isLoading } = useAuth();
 
-  let user = null;
-
-  try {
-    const storedUser = localStorage.getItem("crimeconnect_current_user");
-    user = storedUser ? JSON.parse(storedUser) : null;
-  } catch {
-    user = null;
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-3">
+          <div className="size-9 animate-spin rounded-full border-4 border-teal-700 border-t-transparent" />
+          <p className="text-sm font-semibold text-slate-500">Authenticating session...</p>
+        </div>
+      </div>
+    );
   }
 
-  if (!user) {
+  if (!isAuthenticated || !user) {
     return (
       <Navigate
         to="/login"
@@ -26,27 +29,18 @@ export default function ProtectedRoute({ allowedRoles = [] }) {
     );
   }
 
-  const role = String(user.role || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
+  const normalizedRole = normalizeRole(role);
+  const normalizedAllowedRoles = allowedRoles.map(normalizeRole);
 
-  const normalizedAllowedRoles = allowedRoles.map((item) =>
-    String(item).trim().toLowerCase().replace(/[\s-]+/g, "_")
-  );
-
-  if (!normalizedAllowedRoles.includes(role)) {
+  if (!normalizedAllowedRoles.includes(normalizedRole)) {
     const roleRoutes = {
       citizen: "/citizen/dashboard",
       police: "/police/dashboard",
-      police_officer: "/police/dashboard",
       admin: "/admin/dashboard",
-      administrator: "/admin/dashboard",
     };
 
-    return <Navigate to={roleRoutes[role] || "/login"} replace />;
+    return <Navigate to={roleRoutes[normalizedRole] || "/login"} replace />;
   }
 
   return <Outlet />;
 }
-

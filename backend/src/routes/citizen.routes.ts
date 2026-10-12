@@ -8,6 +8,9 @@ const router = Router();
 // All citizen routes require authentication and CITIZEN role
 router.use(authenticate, authorize(UserRole.CITIZEN));
 
+// Dashboard
+router.get('/dashboard', citizenController.getDashboardStats);
+
 // Reports
 router.post('/reports', citizenController.submitReport);
 router.get('/reports', citizenController.getMyReports);

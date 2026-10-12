@@ -10,6 +10,7 @@ router.use(authenticate, authorize(UserRole.ADMIN));
 
 router.get('/dashboard', adminController.getDashboardStats);
 router.get('/users', adminController.getUsers);
+router.post('/users', adminController.createUser);
 router.get('/officers', adminController.getOfficers);
 router.get('/reports', adminController.getAllReports);
 router.get('/cases/unassigned', adminController.getUnassignedCases);

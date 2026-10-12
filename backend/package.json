@@ -12,7 +12,8 @@
     "db:clear": "tsx src/database/clear.ts",
     "db:reset": "npm run db:clear && npm run db:seed",
     "lint": "eslint src/",
-    "format": "prettier --write \"src/**/*.ts\""
+    "format": "prettier --write \"src/**/*.ts\"",
+    "test": "tsx --test src/tests/*.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

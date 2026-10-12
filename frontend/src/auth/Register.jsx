@@ -1,32 +1,34 @@
-
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
+import { useAuth } from "./AuthContext";
 
 export default function Register() {
   const navigate = useNavigate();
+  const { register } = useAuth();
 
   const [form, setForm] = useState({
     name: "",
     email: "",
+    phone: "",
     password: "",
     confirmPassword: "",
-    role: "citizen",
   });
 
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
     setError("");
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
-    if (form.password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (form.password.length < 8) {
+      setError("Password must be at least 8 characters long.");
       return;
     }
 
@@ -35,39 +37,27 @@ export default function Register() {
       return;
     }
 
+    setLoading(true);
+
     try {
-      const users = JSON.parse(
-        localStorage.getItem("crimeconnect_users") || "[]"
-      );
-
-      const email = form.email.trim().toLowerCase();
-
-      if (users.some((user) => user.email === email)) {
-        setError("This email is already registered. Please log in.");
-        return;
-      }
-
-      const newUser = {
-        id: Date.now(),
+      await register({
         name: form.name.trim(),
-        email,
+        email: form.email.trim().toLowerCase(),
+        phone: form.phone.trim(),
         password: form.password,
-        role: form.role,
-      };
-
-      localStorage.setItem(
-        "crimeconnect_users",
-        JSON.stringify([...users, newUser])
-      );
+      });
 
       navigate("/login", {
         state: {
-          message: "Registration successful! Please log in.",
-          email,
+          message: "Registration successful! Please log in with your new account.",
+          email: form.email.trim().toLowerCase(),
         },
       });
-    } catch {
-      setError("Unable to save your account in this browser.");
+    } catch (err) {
+      console.error("Registration error:", err);
+      setError(err.message || "Failed to create account. Please check your details.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -80,7 +70,7 @@ export default function Register() {
             Create Account
           </h1>
           <p className="mt-2 text-slate-500">
-            Join CrimeConnect
+            Join Civic Shield Citizen Portal
           </p>
         </div>
 
@@ -91,82 +81,90 @@ export default function Register() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            name="name"
-            value={form.name}
-            onChange={handleChange}
-            placeholder="Full name"
-            autoComplete="name"
-            required
-            className="w-full rounded-lg border p-3"
-          />
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Full name</label>
+            <input
+              name="name"
+              value={form.name}
+              onChange={handleChange}
+              placeholder="e.g. Rahul Sharma"
+              autoComplete="name"
+              required
+              className="w-full rounded-lg border border-slate-300 p-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+            />
+          </div>
 
-          <input
-            name="email"
-            type="email"
-            value={form.email}
-            onChange={handleChange}
-            placeholder="Email address"
-            autoComplete="email"
-            required
-            className="w-full rounded-lg border p-3"
-          />
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Email address</label>
+            <input
+              name="email"
+              type="email"
+              value={form.email}
+              onChange={handleChange}
+              placeholder="e.g. rahul@example.com"
+              autoComplete="email"
+              required
+              className="w-full rounded-lg border border-slate-300 p-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+            />
+          </div>
 
-          <label className="block text-sm font-medium text-slate-700">
-            Register as
-          </label>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Phone number</label>
+            <input
+              name="phone"
+              type="tel"
+              value={form.phone}
+              onChange={handleChange}
+              placeholder="e.g. 9820012345 (10 digits)"
+              autoComplete="tel"
+              required
+              className="w-full rounded-lg border border-slate-300 p-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+            />
+          </div>
 
-          <select
-            name="role"
-            value={form.role}
-            onChange={handleChange}
-            className="w-full rounded-lg border bg-white p-3"
-          >
-            <option value="citizen">Citizen</option>
-            <option value="police">Police Officer</option>
-            <option value="admin">Administrator</option>
-          </select>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Password</label>
+            <input
+              name="password"
+              type="password"
+              value={form.password}
+              onChange={handleChange}
+              placeholder="Minimum 8 characters"
+              autoComplete="new-password"
+              minLength={8}
+              required
+              className="w-full rounded-lg border border-slate-300 p-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+            />
+          </div>
 
-          <input
-            name="password"
-            type="password"
-            value={form.password}
-            onChange={handleChange}
-            placeholder="Password (at least 6 characters)"
-            autoComplete="new-password"
-            minLength={6}
-            required
-            className="w-full rounded-lg border p-3"
-          />
-
-          <input
-            name="confirmPassword"
-            type="password"
-            value={form.confirmPassword}
-            onChange={handleChange}
-            placeholder="Confirm password"
-            autoComplete="new-password"
-            required
-            className="w-full rounded-lg border p-3"
-          />
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Confirm password</label>
+            <input
+              name="confirmPassword"
+              type="password"
+              value={form.confirmPassword}
+              onChange={handleChange}
+              placeholder="Re-enter password"
+              autoComplete="new-password"
+              required
+              className="w-full rounded-lg border border-slate-300 p-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+            />
+          </div>
 
           <button
             type="submit"
-            className="w-full rounded-lg bg-teal-700 p-3 font-semibold text-white hover:bg-teal-800"
+            disabled={loading}
+            className="w-full rounded-lg bg-teal-700 p-3 font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Register
+            {loading ? "Creating account..." : "Register"}
           </button>
         </form>
 
         <p className="mt-5 text-center text-sm text-slate-600">
           Already registered?{" "}
-          <Link to="/login" className="font-semibold text-teal-700">
+          <Link to="/login" className="font-semibold text-teal-700 hover:underline">
             Login
           </Link>
-        </p>
-
-        <p className="mt-4 text-center text-xs text-slate-400">
-          Frontend demo only. Role selection is not verified.
         </p>
       </div>
     </div>

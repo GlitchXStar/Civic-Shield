@@ -23,12 +23,20 @@ export async function register(req: Request, res: Response, next: NextFunction):
 
     const hashedPassword = await hashPassword(data.password);
 
+    let fullName = data.name?.trim();
+    if (!fullName) {
+      fullName = `${data.firstName || ''} ${data.lastName || ''}`.trim();
+    }
+    if (!fullName) {
+      fullName = 'Citizen User';
+    }
+
     const user = await User.create({
-      name: `${data.firstName} ${data.lastName}`.trim(),
+      name: fullName,
       email: data.email,
-      phone: data.phone,
+      phone: data.phone || '',
       passwordHash: hashedPassword,
-      role: data.role,
+      role: UserRole.CITIZEN,
       status: UserStatus.ACTIVE,
     });
 

@@ -1,84 +1,34 @@
-
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
-
-const dashboardRoutes = {
-  citizen: "/citizen/dashboard",
-  police: "/police/dashboard",
-  police_officer: "/police/dashboard",
-  admin: "/admin/dashboard",
-  administrator: "/admin/dashboard",
-};
+import { useAuth, ROLE_HOME } from "./AuthContext";
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { login } = useAuth();
 
   const [email, setEmail] = useState(location.state?.email || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      const users = JSON.parse(
-        localStorage.getItem("crimeconnect_users") || "[]"
-      );
+      const user = await login({
+        email: email.trim().toLowerCase(),
+        password,
+      });
 
-      if (!Array.isArray(users)) {
-        setError("Account data is invalid. Please register again.");
-        return;
-      }
-
-      const normalizedEmail = email.trim().toLowerCase();
-
-      const user = users.find(
-        (item) =>
-          String(item.email || "").trim().toLowerCase() ===
-            normalizedEmail &&
-          item.password === password
-      );
-
-      if (!user) {
-        setError(
-          "Incorrect email or password. Please check your details or register first."
-        );
-        return;
-      }
-
-      const role = String(user.role || "")
-        .trim()
-        .toLowerCase()
-        .replace(/[\s-]+/g, "_");
-
-      const destination = dashboardRoutes[role];
-
-      if (!destination) {
-        setError("No dashboard is configured for your account role.");
-        return;
-      }
-
-      // Do not store the password in the signed-in user object.
-      const { password: ignoredPassword, ...safeUser } = user;
-
-      localStorage.setItem(
-        "crimeconnect_current_user",
-        JSON.stringify(safeUser)
-      );
-
-      // Compatibility with existing frontend components.
-      localStorage.setItem("user", JSON.stringify(safeUser));
-      localStorage.setItem("isLoggedIn", "true");
-
+      const destination = location.state?.from || ROLE_HOME[user.role] || "/citizen/dashboard";
       navigate(destination, { replace: true });
-    } catch (error) {
-      console.error("Login error:", error);
-      setError("Unable to read account data. Please register again.");
+    } catch (err) {
+      console.error("Login failed:", err);
+      setError(err.message || "Invalid email or password. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -89,13 +39,11 @@ export default function Login() {
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
         <div className="mb-6 text-center">
           <ShieldCheck className="mx-auto mb-3 h-12 w-12 text-teal-700" />
-
           <h1 className="text-3xl font-bold text-slate-800">
             Welcome Back
           </h1>
-
           <p className="mt-2 text-slate-500">
-            Login to CrimeConnect
+            Login to Civic Shield
           </p>
         </div>
 
@@ -192,4 +140,3 @@ export default function Login() {
     </div>
   );
 }
-
